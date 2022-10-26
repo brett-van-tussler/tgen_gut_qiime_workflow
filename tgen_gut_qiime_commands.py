@@ -11,16 +11,14 @@ import qiime2.plugins.dada2.actions as dada2_actions
 from qiime2 import Metadata
 import glob
 import qiime2.plugins.metadata.actions as metadata_actions
-import qiime2.plugins.feature_table.actions as feature_table
+import qiime2.plugins.feature_table.actions as feature_table_actions
 import qiime2.plugins.feature_table.methods
 #In the directory /labs/Microbiome/Tgen_CLIA_GMHI/python_qiime_api_analysis
   
 def view_metadata():
-  df = pd.read_csv('Tgen_sample_metadata.csv')
-  df = df.rename(columns={'subject_id':'sample-id', 'sample_name':'samples_name'})
-
-  df.to_csv('Tgen_sample_metadata.tsv', sep='\t', index=False)
-  sample_metadata_md = Metadata.load('Tgen_sample_metadata.tsv')
+  df = pd.read_csv('TGen_sample_metadata.tsv', sep='\t')
+  print(df)
+  sample_metadata_md = Metadata.load('TGen_sample_metadata.tsv')
   metadata_summ_viz, = metadata_actions.tabulate(
     input=sample_metadata_md,
   )
@@ -67,6 +65,7 @@ def create_casava_demux_artifacts():
     demultiplexed_sequences_summ_viz.save('demux_artifacts_by_run/' + run.split('/')[1] + '-casava-paired-end-demux.qzv')
 
 def denoise_casava_artifacts():
+  
   #Denoise the separate runs and output the denoise artifacts to a folder.
   """
   sbatch --mem 10g qiime dada2 denoise-single \
@@ -89,16 +88,14 @@ def denoise_casava_artifacts():
     prepend_name = demux_artifact.split('-casava')[0]
 
     demultiplexed_sequences_casava = Artifact.load('demux_artifacts_by_run/' + demux_artifact)
-    
-    
 
     cas_feature_table, cas_asv_sequences, dada2_stats = dada2_actions.denoise_paired(
       demultiplexed_seqs=demultiplexed_sequences_casava,
       trunc_len_f=150,
       trim_left_r=0,
       trunc_len_r=150,
-      n_threads = 0,)
-    
+      n_threads = 10,)
+
     if not os.path.exists('denoised_casava_artifacts/' + prepend_name):
       os.mkdir('denoised_casava_artifacts/' + prepend_name)
 
@@ -113,15 +110,17 @@ def denoise_casava_artifacts():
 
     dada2_stats_summ_viz.save('denoised_casava_artifacts/' + prepend_name + '/' + prepend_name + '_cas_dada2_stats.qzv')
 
+    sample_metadata_md = Metadata.load('TGen_sample_metadata.tsv')
     cas_feature_table_summ_viz, = feature_table_actions.summarize(
     table=cas_feature_table,
     sample_metadata=sample_metadata_md,
     )
+    
     cas_asv_sequences_summ_viz, = feature_table_actions.tabulate_seqs(
         data=cas_asv_sequences,
     )
     cas_feature_table_summ_viz.save('denoised_casava_artifacts/' + prepend_name + '/' + prepend_name + '_cas_feature_table.qzv')
-    cas_asv_sequences_summ_viz.save('denoised_casava_artifacts/' + prepend_name + '/' + prepend_name + '_cas_asv_sequences.qza')
+    cas_asv_sequences_summ_viz.save('denoised_casava_artifacts/' + prepend_name + '/' + prepend_name + '_cas_asv_sequences')
 
 def merge_casava_denoise_artifacts():
   #help(feature_table)
@@ -138,9 +137,12 @@ def merge_casava_denoise_artifacts():
   #merged=feature_table.merge(tables=[table_1, table_2])
   #help(qiime2.plugins.feature_table.methods.merge)
 
-  merged_table.save('casava_denoise_table_merged.qza')
+  if not os.path.exists('final_merges'):
+    os.mkdir('final_merges')
+
+  merged_table.save('final_merges/casava_denoise_table_merged.qza')
   casava_denoise_table_merged_viz = feature_table_actions.summarize(table=merged_table)[0]
-  casava_denoise_table_merged_viz.save('casava_denoise_table_merged_viz.qzv')
+  casava_denoise_table_merged_viz.save('final_merges/casava_denoise_table_merged_viz.qzv')
 
 def create_manifest_demux_artifacts():
   #Get the file locations, create a manifest file, manifest.csv, import the demuxed sequences into a qiime2 artifact
@@ -205,73 +207,62 @@ def create_manifest_demux_artifacts():
     demultiplexed_sequences_summ_viz.save('manifest_artifacts_by_run/' + manifest.split('.')[0] + '_manifest-paired-end-demux.qzv')
 
 def denoise_manifest_artifacts():
-  manifest_demux_artifacts = glob.glob('/labs/Microbiome/Tgen_CLIA_GMHI/python_qiime_api_analysis/manifest_artifacts_by_run/*.qza')
-
-  manifest_demux_artifacts = ['/'.join(x.split('/')[-2:]) for x in manifest_demux_artifacts]
-
+  manifest_demux_artifacts = os.listdir('manifest_artifacts_by_run')
   if not os.path.exists('denoised_manifest_artifacts'):
     os.mkdir('denoised_manifest_artifacts')
 
   for demux_artifact in manifest_demux_artifacts:
     print(demux_artifact)
-    demultiplexed_sequences_manifest = Artifact.load(demux_artifact)
-    prepend_name = demux_artifact.split('/')[1].split('_manifest')[0]
+    prepend_name = demux_artifact.split('_manifest')[0]
+    print(prepend_name)
+
+    demultiplexed_sequences_manifest = Artifact.load('manifest_artifacts_by_run/' + demux_artifact)
+    
     manifest_feature_table, manifest_asv_sequences, dada2_stats = dada2_actions.denoise_paired(
       demultiplexed_seqs=demultiplexed_sequences_manifest,
       trunc_len_f=150,
       trim_left_r=0,
       trunc_len_r=150,
-      n_threads = 0,)
+      n_threads = 10,)
 
-    manifest_feature_table.save('denoised_manifest_artifacts/' + prepend_name + '_manifest_feature_table.qza')
-    manifest_asv_sequences.save('denoised_manifest_artifacts/' + prepend_name + '_manifest_asv_sequences.qza')
-    dada2_stats.save('denoised_manifest_artifacts/' + prepend_name + '_manifest_dada2_stats.qza')
+    if not os.path.exists('denoised_manifest_artifacts/' + prepend_name):
+      os.mkdir('denoised_manifest_artifacts/' + prepend_name)
+
+    manifest_feature_table.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name + '_manifest_feature_table.qza')
+    manifest_asv_sequences.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name +'_manifest_asv_sequences.qza')
+    dada2_stats.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name + '_manifest_dada2_stats.qza')
 
     stats_dada2_md_md = dada2_stats.view(Metadata)
     dada2_stats_summ_viz, = metadata_actions.tabulate(
       input=stats_dada2_md_md,
     )
 
-    dada2_stats_summ_viz.save('denoised_manifest_artifacts/' + demux_artifact.split('/')[1].split('.')[0] + '_manifest_dada2_stats.qzv')
+    dada2_stats_summ_viz.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name + '_manifest_dada2_stats.qzv')
 
-    manifest_feature_table_summ_viz, = feature_table_actions.summarize(
-    table=manifest_feature_table,
-    sample_metadata=sample_metadata_md,
-    )
+    sample_metadata_md = Metadata.load('TGen_Sample_metadata.tsv')
+    manifest_feature_table_summ_viz, = feature_table_actions.summarize( table=manifest_feature_table, sample_metadata=sample_metadata_md,)
     manifest_asv_sequences_summ_viz, = feature_table_actions.tabulate_seqs(
         data=manifest_asv_sequences,
     )
-    manifest_feature_table_summ_viz.save('denoised_manifest_artifacts/' + prepend_name + '_manifest_feature_table.qzv')
-    manifest_asv_sequences_summ_viz.save('denoised_manifest_artifacts/' + prepend_name + '_manifest_asv_sequences.qzv')
-
-def merge_manifest_denoise_artifacts():
-   #help(feature_table)
-  denoise_folders = glob.glob('/labs/Microbiome/Tgen_CLIA_GMHI/python_qiime_api_analysis/denoised_manifest_artifacts/*')
-  first_folder =  denoise_folders[0]
-  first_table = glob.glob(first_folder + '/*feature*.qza')[0]
-
-  merged_table = Artifact.load(first_table)
-  denoise_folders = denoise_folders[1:]
-  for folder in denoise_folders:
-    table_to_merge_in = glob.glob(folder + '/*feature*')[0]
-    table_to_merge_in = Artifact.load(table_to_merge_in)
-    merged_table=feature_table_actions.merge(tables=[merged_table, table_to_merge_in])[0]
-
-  merged_table.save('manifest_denoise_table_merged.qza')
-  manifest_denoise_table_merged_viz = feature_table_actions.summarize(table=merged_table)[0]
-  manifest_denoise_table_merged_viz.save('manifest_denoise_table_merged_viz.qzv')
+    manifest_feature_table_summ_viz.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name + '_manifest_feature_table.qzv')
+    manifest_asv_sequences_summ_viz.save('denoised_manifest_artifacts/' + prepend_name + '/' + prepend_name + '_manifest_asv_sequences.qzv')
 
 def merge_manifest_casava_artifacts():
-
-  return
+  casava_merged_table=Artifact.load('final_merges/casava_denoise_table_merged.qza')
+  manifest_merged_table=Artifact.load('denoised_manifest_artifacts/PMI-TGN_Highlander_COH_CBM588_AlloHSCT_18193/PMI-TGN_Highlander_COH_CBM588_AlloHSCT_18193_manifest_feature_table.qza')
+  merged_table=feature_table_actions.merge(tables=[casava_merged_table, manifest_merged_table])[0]
+  merged_table.save('final_table_merged.qza')
+  manifest_denoise_table_merged_viz = feature_table_actions.summarize(table=merged_table)[0]
+  manifest_denoise_table_merged_viz.save('final_table_merged_viz.qzv')
 
 if __name__ == "__main__":
   #view_metadata()
+
   #create_casava_demux_artifacts()
-  denoise_casava_artifacts()
+  #denoise_casava_artifacts()
   #merge_casava_denoise_artifacts()
   
   #create_manifest_demux_artifacts()
   #denoise_manifest_artifacts()
-  #merge_manifest_denoise_artifacts()
-  #merge_manifest_casava_artifacts()
+
+  merge_manifest_casava_artifacts()
